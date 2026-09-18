@@ -1,5 +1,12 @@
 import streamlit as st
 import nltk
+
+# Téléchargement défensif pour Streamlit Cloud
+try:
+    nltk.data.find("tokenizers/punkt")
+except LookupError:
+    nltk.download("punkt", quiet=True)
+
 from nltk.chat.util import Chat, reflections
 from PIL import Image, ImageStat
 
@@ -12,6 +19,92 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# -------------------------------------------------------------
+# Feuilles de styles CSS personnalisées
+# -------------------------------------------------------------
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    .main-header {
+        background: linear-gradient(135deg, #b91c1c 0%, #c2410c 50%, #d97706 100%);
+        padding: 2.2rem 2.5rem;
+        border-radius: 18px;
+        color: white;
+        margin-bottom: 1.8rem;
+        box-shadow: 0 10px 30px rgba(185, 28, 28, 0.2);
+    }
+    .main-header h1 {
+        margin: 0;
+        font-weight: 700;
+        font-size: 2.3rem;
+        color: #ffffff;
+    }
+    .main-header p {
+        margin: 0.6rem 0 0 0;
+        font-size: 1.05rem;
+        opacity: 0.95;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        padding-bottom: 6px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 48px;
+        background-color: rgba(255, 255, 255, 0.04);
+        border-radius: 10px;
+        padding: 0 20px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.2s ease-in-out;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #b91c1c !important;
+        color: white !important;
+        border-color: #b91c1c !important;
+        box-shadow: 0 4px 15px rgba(185, 28, 28, 0.35);
+    }
+
+    div[data-testid="stSidebarHeader"] {
+        padding-bottom: 0rem;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background-color: rgba(16, 185, 129, 0.12);
+        color: #10b981;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    div[data-testid="stChatMessage"] {
+        border-radius: 14px;
+        padding: 1.1rem;
+        margin-bottom: 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .result-card {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 14px;
+        padding: 1.4rem;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        margin-top: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # Base de connaissances (NLTK Pairs)
@@ -56,49 +149,56 @@ if "messages" not in st.session_state:
     ]
 
 # -------------------------------------------------------------
-# Analyseur d'image sans API (Algorithme Heuristique)
+# Analyseur d'image sans API
 # -------------------------------------------------------------
 def analyze_image_colors(image: Image.Image):
-    """Analyse les pixels de l'image pour deviner l'ambiance de la destination."""
-    # Convertir en RGB et calculer la moyenne des couleurs
     stat = ImageStat.Stat(image.convert("RGB"))
     r, g, b = stat.mean[:3]
-    
-    # Logique de déduction basée sur les couleurs dominantes
+
     if b > r and b > g:
-        destination = "🌊 **Ambiance Bleue / Côtière**"
+        destination = "🌊 Ambiance Bleue / Côtière"
         description = "Forte dominante de bleu. Il s'agit très probablement des ruelles de **Chefchaouen**, ou d'une vue sur l'océan à **Essaouira** ou **Agadir**."
     elif r > 140 and g < 130 and b < 100:
-        destination = "🏜️ **Ambiance Ocre / Désertique**"
+        destination = "🏜️ Ambiance Ocre / Désertique"
         description = "Forte présence de tons chauds (terre cuite, sable). Cela correspond bien aux remparts de **Marrakech**, aux kasbahs de Ouarzazate, ou aux dunes de **Merzouga**."
     elif g > r and g > b:
-        destination = "🌿 **Ambiance Nature / Montagne**"
+        destination = "🌿 Ambiance Nature / Montagne"
         description = "Prédominance de vert. Cela évoque les paysages du **Moyen Atlas**, la vallée de l'Ourika ou les cascades d'Ouzoud."
     else:
-        destination = "🏛️ **Ambiance Urbaine / Historique**"
+        destination = "🏛️ Ambiance Urbaine / Historique"
         description = "Couleurs mixtes ou neutres. Typique de l'architecture des grandes villes comme **Casablanca**, **Rabat** ou **Fès**."
 
     return {
         "destination": destination,
         "description": description,
-        "rgb": f"Rouge: {int(r)} | Vert: {int(g)} | Bleu: {int(b)}",
-        "size": f"{image.width} x {image.height} pixels"
+        "r": int(r),
+        "g": int(g),
+        "b": int(b),
+        "size": f"{image.width} × {image.height} px"
     }
 
 # -------------------------------------------------------------
 # Interface de Connexion
 # -------------------------------------------------------------
 def login_screen():
-    st.markdown("<h1 style='text-align: center;'>🇲🇦 Plateforme Touristique</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: gray;'>Connectez-vous pour accéder à votre guide</p>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 4vh;'></div>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.4, 1])
 
-    col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+            <span style="font-size: 3.5rem;">🇲🇦</span>
+            <h1 style="margin: 0.4rem 0 0.2rem 0; font-weight: 700;">Maroc Explorer Pro</h1>
+            <p style="color: #9ca3af; font-size: 0.95rem;">Plateforme Touristique Intelligente</p>
+        </div>
+        """, unsafe_allow_html=True)
+
         with st.container(border=True):
+            st.markdown("#### Connexion voyageur")
             with st.form("login_form"):
-                user = st.text_input("Identifiant utilisateur")
-                pwd = st.text_input("Mot de passe", type="password")
-                submit = st.form_submit_button("Se connecter", use_container_width=True, type="primary")
+                user = st.text_input("Identifiant utilisateur", placeholder="ex: admin ou visiteur")
+                pwd = st.text_input("Mot de passe", type="password", placeholder="••••••••")
+                submit = st.form_submit_button("Se connecter à la session", use_container_width=True, type="primary")
 
                 if submit:
                     if user in USER_CREDENTIALS and USER_CREDENTIALS[user] == pwd:
@@ -107,7 +207,14 @@ def login_screen():
                         st.rerun()
                     else:
                         st.error("Identifiants incorrects.")
-        st.info("💡 **Accès de test :** `admin` / `admin123`")
+
+        st.markdown("""
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 0.9rem; margin-top: 1rem; text-align: center;">
+            <span style="font-size: 0.85rem; color: #9ca3af;">
+                💡 <b>Accès rapides :</b> <code>admin</code> / <code>admin123</code> &nbsp;|&nbsp; <code>visiteur</code> / <code>maroc2026</code>
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # Application Principale
@@ -115,18 +222,18 @@ def login_screen():
 def main_app():
     # --- Barre latérale ---
     with st.sidebar:
-        st.markdown(f"### 👤 Profil : **{st.session_state.username.capitalize()}**")
-        st.caption("🟢 Système Actif (Chat + Vision locale)")
+        st.markdown(f"### 👋 Bonjour, **{st.session_state.username.capitalize()}**")
+        st.markdown('<div class="status-badge">● Module NLTK & Vision Actif</div>', unsafe_allow_html=True)
         st.divider()
 
-        st.markdown("#### 🧭 Questions Rapides")
+        st.markdown("##### 🧭 Questions Rapides")
         suggestions = [
             "Que faire à Marrakech ?",
             "Parle-moi de Casablanca",
             "Quels sont les plats typiques ?",
             "Parle-moi du désert"
         ]
-        
+
         for q in suggestions:
             if st.button(q, use_container_width=True):
                 st.session_state.messages.append({"role": "user", "content": q})
@@ -142,57 +249,71 @@ def main_app():
             st.session_state.authenticated = False
             st.rerun()
 
-    # --- Zone Centrale avec Onglets ---
-    st.title("🇲🇦 Guide Touristique & Analyseur")
-    
-    tab_chat, tab_vision = st.tabs(["💬 Guide Interactif", "📸 Analyseur Visuel"])
+    # --- En-tête principal stylisé ---
+    st.markdown("""
+    <div class="main-header">
+        <h1>🇲🇦 Maroc Explorer Pro</h1>
+        <p>Votre assistant de voyage interactif et analyseur d'ambiance visuelle marocaine.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # ONGLET 1 : CHATBOT
+    tab_chat, tab_vision = st.tabs(["💬 Guide Touristique Interactif", "📸 Analyseur d'Image & Chromatique"])
+
+    # --- ONGLET 1 : CHATBOT ---
     with tab_chat:
-        st.markdown("Posez vos questions sur les villes, la gastronomie ou le patrimoine marocain.")
         for msg in st.session_state.messages:
-            avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
+            avatar = "🧑‍💻" if msg["role"] == "user" else "🕌"
             with st.chat_message(msg["role"], avatar=avatar):
                 st.markdown(msg["content"])
 
-        if prompt := st.chat_input("Écrivez votre question ici..."):
+        if prompt := st.chat_input("Posez votre question sur les villes, monuments ou circuits..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user", avatar="🧑‍💻"):
                 st.markdown(prompt)
 
             reply = chatbot.respond(prompt)
             if not reply:
-                reply = "Désolé, je n'ai pas cette information dans ma base de données. Essayez de me demander des détails sur une ville comme Marrakech ou Agadir !"
+                reply = "Désolé, je n'ai pas cette information dans ma base de données. Essayez de me poser une question sur Marrakech, Agadir ou Chefchaouen !"
 
             st.session_state.messages.append({"role": "assistant", "content": reply})
-            with st.chat_message("assistant", avatar="🤖"):
+            with st.chat_message("assistant", avatar="🕌"):
                 st.markdown(reply)
 
-    # ONGLET 2 : VISION SANS API
+    # --- ONGLET 2 : VISION ---
     with tab_vision:
-        st.subheader("Analyseur de photographies de voyage")
-        st.caption("Téléversez une photo. L'algorithme analysera les teintes dominantes pour deviner la région marocaine correspondante (sans utiliser d'API externe).")
+        st.markdown("#### Détection d'Ambiance Géographique")
+        st.caption("Téléversez un cliché touristique pour analyser le profil colorimétrique et déduire la région marocaine.")
 
-        uploaded_img = st.file_uploader("Choisissez une image (JPG, PNG)", type=["jpg", "jpeg", "png"])
+        uploaded_img = st.file_uploader("Importer une photo de voyage (JPG, PNG)", type=["jpg", "jpeg", "png"])
 
         if uploaded_img is not None:
-            col_img, col_data = st.columns([1, 1])
+            col_img, col_data = st.columns([1.1, 1.3], gap="large")
             img = Image.open(uploaded_img)
 
             with col_img:
-                st.image(img, caption="Photo importée", use_container_width=True)
+                with st.container(border=True):
+                    st.image(img, caption="Photographie importée", use_container_width=True)
 
             with col_data:
-                if st.button("🔍 Lancer l'analyse chromatique", type="primary", use_container_width=True):
-                    with st.spinner("Analyse des pixels en cours..."):
+                if st.button("🔍 Lancer le diagnostic visuel", type="primary", use_container_width=True):
+                    with st.spinner("Extraction des canaux chromatiques..."):
                         results = analyze_image_colors(img)
-                        st.success("Analyse terminée !")
-                        st.markdown(f"### {results['destination']}")
-                        st.write(results['description'])
-                        
-                        st.divider()
-                        st.markdown("#### ⚙️ Données Techniques (Backend)")
-                        st.code(f"Résolution : {results['size']}\nProfil RGB  : {results['rgb']}")
+
+                        st.markdown(f"""
+                        <div class="result-card">
+                            <h3 style="margin: 0 0 0.5rem 0; color: #f59e0b;">{results['destination']}</h3>
+                            <p style="margin: 0; font-size: 1rem; line-height: 1.5;">{results['description']}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+                        st.markdown("##### Métriques de l'image")
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Canal Rouge", f"{results['r']}")
+                        m2.metric("Canal Vert", f"{results['g']}")
+                        m3.metric("Canal Bleu", f"{results['b']}")
+                        m4.metric("Format", results['size'])
 
 # -------------------------------------------------------------
 # Démarrage
