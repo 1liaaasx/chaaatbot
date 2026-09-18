@@ -1,75 +1,104 @@
 import streamlit as st
-from PIL import Image
-from google import genai
-from google.genai import types
+import nltk
+from nltk.chat.util import Chat, reflections
+from PIL import Image, ImageStat
 
 # -------------------------------------------------------------
-# 1. Configuration de l'application
+# Configuration de l'interface
 # -------------------------------------------------------------
 st.set_page_config(
-    page_title="Maroc Explorer Pro | AI Guide",
+    page_title="Maroc Explorer Pro",
     page_icon="🇲🇦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Identifiants de test
-USER_CREDENTIALS = {
-    "admin": "admin123",
-    "visiteur": "maroc2026"
-}
+# -------------------------------------------------------------
+# Base de connaissances (NLTK Pairs)
+# -------------------------------------------------------------
+pairs = [
+    [r"mon nom est (.*)", ["Enchanté %1 ! Je suis votre guide virtuel. Prêt à explorer le Maroc ?"]],
+    [r"bonjour|salut|coucou|salam", [
+        "Salam ! Prêt à découvrir les merveilles du Maroc ?",
+        "Bonjour ! Quelle destination marocaine t'intéresse aujourd'hui ?"
+    ]],
+    [r"(.*)capitale(.*)", ["La capitale administrative et politique du Maroc est Rabat."]],
+    [r"(.*)marrakech(.*)", ["Marrakech, la ville ocre ! Célèbre pour sa médina, la place Jemaa el-Fna et ses souks."]],
+    [r"(.*)casablanca(.*)", ["Casablanca est la capitale économique du pays, réputée pour sa majestueuse Mosquée Hassan II."]],
+    [r"(.*)chefchaouen(.*)", ["Chefchaouen, la perle bleue nichée dans les montagnes du Rif, idéale pour des balades relaxantes."]],
+    [r"(.*)agadir(.*)", ["Agadir est parfaite pour le soleil toute l'année, sa corniche animée et ses spots de surf."]],
+    [r"(.*)safi(.*)", ["Safi est renommée pour sa poterie artisanale, sa colline des potiers et son passé atlantique."]],
+    [r"(.*)essaouira(.*)", ["Essaouira (l'ancienne Mogador) séduit par ses remparts maritimes et son vent parfait pour le kitesurf."]],
+    [r"(.*)monument(.*)", ["Parmi les incontournables : la Mosquée Hassan II, la Koutoubia à Marrakech, la Tour Hassan à Rabat."]],
+    [r"(.*)desert(.*)", ["Le désert marocain offre des paysages féeriques, notamment les dunes de Merzouga et de Zagora."]],
+    [r"(.*)montagne(.*)", ["Le Maroc abrite de superbes massifs : le Haut Atlas (mont Toubkal), le Moyen Atlas et le Rif."]],
+    [r"(.*)cuisine(.*)|(.*)manger(.*)|(.*)plat(.*)", ["La gastronomie marocaine est un régal : couscous, tajines, pastilla, et thé à la menthe."]],
+    [r"(.*)meilleure destination(.*)", ["Tout dépend de tes envies : Marrakech pour l'ambiance, Agadir pour la mer, Merzouga pour le désert."]],
+    [r"merci(.*)", ["Avec grand plaisir ! N'hésite pas si tu as d'autres questions. 🇲🇦"]],
+    [r"au revoir|bye|quitter", ["Au revoir et excellent séjour au Maroc !"]],
+    [r"(.*)", ["Je ne suis pas sûr de saisir. Pose-moi une question sur une ville ou un monument marocain !"]]
+]
+
+chatbot = Chat(pairs, reflections)
 
 # -------------------------------------------------------------
-# 2. Initialisation de l'état (Session State)
+# Gestion de l'état (Session State)
 # -------------------------------------------------------------
+USER_CREDENTIALS = {"admin": "admin123", "visiteur": "maroc2026"}
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "username" not in st.session_state:
     st.session_state.username = ""
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Marhaban ! Je suis votre guide virtuel propulsé par l'IA. Quelle région du Maroc souhaitez-vous explorer aujourd'hui ?"}
+        {"role": "assistant", "content": "Marhaban ! Je suis votre guide virtuel. Que souhaitez-vous découvrir au Maroc ?"}
     ]
 
-# Récupération sécurisée de la clé API
-api_key = None
-try:
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    pass
+# -------------------------------------------------------------
+# Analyseur d'image sans API (Algorithme Heuristique)
+# -------------------------------------------------------------
+def analyze_image_colors(image: Image.Image):
+    """Analyse les pixels de l'image pour deviner l'ambiance de la destination."""
+    # Convertir en RGB et calculer la moyenne des couleurs
+    stat = ImageStat.Stat(image.convert("RGB"))
+    r, g, b = stat.mean[:3]
+    
+    # Logique de déduction basée sur les couleurs dominantes
+    if b > r and b > g:
+        destination = "🌊 **Ambiance Bleue / Côtière**"
+        description = "Forte dominante de bleu. Il s'agit très probablement des ruelles de **Chefchaouen**, ou d'une vue sur l'océan à **Essaouira** ou **Agadir**."
+    elif r > 140 and g < 130 and b < 100:
+        destination = "🏜️ **Ambiance Ocre / Désertique**"
+        description = "Forte présence de tons chauds (terre cuite, sable). Cela correspond bien aux remparts de **Marrakech**, aux kasbahs de Ouarzazate, ou aux dunes de **Merzouga**."
+    elif g > r and g > b:
+        destination = "🌿 **Ambiance Nature / Montagne**"
+        description = "Prédominance de vert. Cela évoque les paysages du **Moyen Atlas**, la vallée de l'Ourika ou les cascades d'Ouzoud."
+    else:
+        destination = "🏛️ **Ambiance Urbaine / Historique**"
+        description = "Couleurs mixtes ou neutres. Typique de l'architecture des grandes villes comme **Casablanca**, **Rabat** ou **Fès**."
 
-# Initialisation du client global
-client = genai.Client(api_key=api_key) if api_key else None
-
-# Initialisation de la session de chat IA (Mémoire)
-if client and "chat_session" not in st.session_state:
-    st.session_state.chat_session = client.chats.create(
-        model="gemini-3.6-flash",
-        config=types.GenerateContentConfig(
-            system_instruction=(
-                "Tu es un guide touristique expert du Maroc, chaleureux et cultivé. "
-                "Tes réponses doivent être structurées, riches en détails historiques et culturels, "
-                "et toujours orientées vers le tourisme marocain. Utilise un formatage clair avec des puces si nécessaire."
-            ),
-            temperature=0.7,
-        )
-    )
+    return {
+        "destination": destination,
+        "description": description,
+        "rgb": f"Rouge: {int(r)} | Vert: {int(g)} | Bleu: {int(b)}",
+        "size": f"{image.width} x {image.height} pixels"
+    }
 
 # -------------------------------------------------------------
-# 3. Composants d'Interface
+# Interface de Connexion
 # -------------------------------------------------------------
 def login_screen():
-    st.markdown("<h1 style='text-align: center; margin-bottom: 2rem;'>🇲🇦 Plateforme Touristique Intelligente</h1>", unsafe_allow_html=True)
-    
+    st.markdown("<h1 style='text-align: center;'>🇲🇦 Plateforme Touristique</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>Connectez-vous pour accéder à votre guide</p>", unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         with st.container(border=True):
-            st.markdown("### 🔐 Authentification")
             with st.form("login_form"):
                 user = st.text_input("Identifiant utilisateur")
                 pwd = st.text_input("Mot de passe", type="password")
-                submit = st.form_submit_button("Initialiser la session", use_container_width=True, type="primary")
+                submit = st.form_submit_button("Se connecter", use_container_width=True, type="primary")
 
                 if submit:
                     if user in USER_CREDENTIALS and USER_CREDENTIALS[user] == pwd:
@@ -77,134 +106,93 @@ def login_screen():
                         st.session_state.username = user
                         st.rerun()
                     else:
-                        st.error("Échec de l'authentification. Identifiants rejetés.")
-        
+                        st.error("Identifiants incorrects.")
         st.info("💡 **Accès de test :** `admin` / `admin123`")
 
-def sidebar_menu():
+# -------------------------------------------------------------
+# Application Principale
+# -------------------------------------------------------------
+def main_app():
+    # --- Barre latérale ---
     with st.sidebar:
         st.markdown(f"### 👤 Profil : **{st.session_state.username.capitalize()}**")
-        st.caption("🟢 API Gemini Connectée" if api_key else "🔴 API Gemini Déconnectée")
+        st.caption("🟢 Système Actif (Chat + Vision locale)")
         st.divider()
 
-        st.markdown("#### 🧭 Itinéraires Rapides")
+        st.markdown("#### 🧭 Questions Rapides")
         suggestions = [
-            "Élabore un itinéraire de 3 jours à Marrakech.",
-            "Quelles sont les spécialités culinaires du Nord ?",
-            "Raconte-moi l'histoire de la Mosquée Hassan II."
+            "Que faire à Marrakech ?",
+            "Parle-moi de Casablanca",
+            "Quels sont les plats typiques ?",
+            "Parle-moi du désert"
         ]
         
         for q in suggestions:
             if st.button(q, use_container_width=True):
-                process_chat_message(q)
+                st.session_state.messages.append({"role": "user", "content": q})
+                st.session_state.messages.append({"role": "assistant", "content": chatbot.respond(q)})
                 st.rerun()
 
         st.divider()
-        if st.button("🗑️ Vider la mémoire de l'IA", use_container_width=True):
-            st.session_state.messages = [{"role": "assistant", "content": "Mémoire effacée. Quel est notre nouveau point de départ ?"}]
-            # Réinitialisation de la session backend
-            if client:
-                st.session_state.chat_session = client.chats.create(model="gemini-3.6-flash")
+        if st.button("🗑️ Effacer l'historique", use_container_width=True):
+            st.session_state.messages = [{"role": "assistant", "content": "Historique réinitialisé ! Où partons-nous ?"}]
             st.rerun()
 
         if st.button("🚪 Déconnexion", use_container_width=True, type="secondary"):
             st.session_state.authenticated = False
             st.rerun()
 
-# -------------------------------------------------------------
-# 4. Logique Backend (Interactions API)
-# -------------------------------------------------------------
-def process_chat_message(prompt: str):
-    """Enregistre le prompt, appelle Gemini en conservant le contexte, et stocke la réponse."""
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # --- Zone Centrale avec Onglets ---
+    st.title("🇲🇦 Guide Touristique & Analyseur")
     
-    if not client:
-        reply = "⚠️ Erreur système : Clé API Gemini introuvable dans les secrets du serveur."
-    else:
-        try:
-            # Envoi du message à la session (garde l'historique automatiquement)
-            response = st.session_state.chat_session.send_message(prompt)
-            reply = response.text
-        except Exception as e:
-            reply = f"⚠️ Erreur de communication avec le serveur IA : {e}"
-            
-    st.session_state.messages.append({"role": "assistant", "content": reply})
+    tab_chat, tab_vision = st.tabs(["💬 Guide Interactif", "📸 Analyseur Visuel"])
 
-def analyze_vision(img: Image.Image):
-    """Appel indépendant au modèle pour l'analyse d'image."""
-    prompt = (
-        "En tant qu'expert du patrimoine marocain, analyse cette image. "
-        "1. Identifie le lieu, l'objet ou la scène.\n"
-        "2. Fournis un contexte historique ou culturel.\n"
-        "3. Liste 3 conseils pratiques pour un touriste découvrant cet élément."
-    )
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=[prompt, img]
-    )
-    return response.text
-
-# -------------------------------------------------------------
-# 5. Moteur Principal de l'Application
-# -------------------------------------------------------------
-def main_app():
-    sidebar_menu()
-
-    st.title("🇲🇦 Guide Touristique IA & Analyse Multimodale")
-    
-    if not api_key:
-        st.error("Attention : Le backend IA est désactivé. Veuillez configurer `GEMINI_API_KEY` dans `.streamlit/secrets.toml`.")
-
-    tab_chat, tab_vision = st.tabs(["💬 Conversation Contextuelle", "📸 Moteur d'Analyse Visuelle"])
-
-    # --- Onglet 1 : Chabot Contextuel ---
+    # ONGLET 1 : CHATBOT
     with tab_chat:
-        # Rendu de l'historique UI
+        st.markdown("Posez vos questions sur les villes, la gastronomie ou le patrimoine marocain.")
         for msg in st.session_state.messages:
-            # Choix d'avatars personnalisés
             avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
             with st.chat_message(msg["role"], avatar=avatar):
                 st.markdown(msg["content"])
 
-        # Entrée utilisateur
-        if prompt := st.chat_input("Ex: Quel est le meilleur moment pour visiter le désert de Merzouga ?"):
-            # Affichage immédiat du message utilisateur
+        if prompt := st.chat_input("Écrivez votre question ici..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user", avatar="🧑‍💻"):
                 st.markdown(prompt)
-            
-            # Traitement backend et affichage IA avec spinner
+
+            reply = chatbot.respond(prompt)
+            if not reply:
+                reply = "Désolé, je n'ai pas cette information dans ma base de données. Essayez de me demander des détails sur une ville comme Marrakech ou Agadir !"
+
+            st.session_state.messages.append({"role": "assistant", "content": reply})
             with st.chat_message("assistant", avatar="🤖"):
-                with st.spinner("Analyse de votre requête en cours..."):
-                    process_chat_message(prompt)
-                    # On affiche le dernier message (la réponse IA)
-                    st.markdown(st.session_state.messages[-1]["content"])
+                st.markdown(reply)
 
-    # --- Onglet 2 : Vision par Ordinateur ---
+    # ONGLET 2 : VISION SANS API
     with tab_vision:
-        st.subheader("Identification Automatisée du Patrimoine")
-        st.markdown("Soumettez une photographie ; notre modèle IA se charge d'extraire le contexte géographique et historique.")
+        st.subheader("Analyseur de photographies de voyage")
+        st.caption("Téléversez une photo. L'algorithme analysera les teintes dominantes pour deviner la région marocaine correspondante (sans utiliser d'API externe).")
 
-        uploaded_img = st.file_uploader("Format supporté : JPG, PNG", type=["jpg", "jpeg", "png"])
+        uploaded_img = st.file_uploader("Choisissez une image (JPG, PNG)", type=["jpg", "jpeg", "png"])
 
         if uploaded_img is not None:
+            col_img, col_data = st.columns([1, 1])
             img = Image.open(uploaded_img)
-            
-            col_img, col_data = st.columns([1, 1.5])
+
             with col_img:
-                st.image(img, caption="Fichier source", use_container_width=True, border=True)
-            
+                st.image(img, caption="Photo importée", use_container_width=True)
+
             with col_data:
-                if st.button("Lancer l'analyse du document visuel", type="primary", use_container_width=True):
-                    if not client:
-                        st.error("Backend IA indisponible.")
-                    else:
-                        with st.spinner("Traitement des pixels et extraction sémantique..."):
-                            try:
-                                result = analyze_vision(img)
-                                st.success("Analyse terminée.")
-                                st.markdown(result)
-                            except Exception as e:
-                                st.error(f"Erreur d'exécution du modèle : {e}")
+                if st.button("🔍 Lancer l'analyse chromatique", type="primary", use_container_width=True):
+                    with st.spinner("Analyse des pixels en cours..."):
+                        results = analyze_image_colors(img)
+                        st.success("Analyse terminée !")
+                        st.markdown(f"### {results['destination']}")
+                        st.write(results['description'])
+                        
+                        st.divider()
+                        st.markdown("#### ⚙️ Données Techniques (Backend)")
+                        st.code(f"Résolution : {results['size']}\nProfil RGB  : {results['rgb']}")
 
 # -------------------------------------------------------------
 # Démarrage
